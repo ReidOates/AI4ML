@@ -1,120 +1,109 @@
-
 from pathlib import Path
 import json
 
-import joblib
-import numpy as np
 import pandas as pd
-
 from flask import Flask, render_template, request
-from tensorflow.keras.models import load_model
 
-
-# ==========================================
-# 1. KONFIGURASI APLIKASI
-# ==========================================
 
 app = Flask(__name__)
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-
-MODEL_DIR = PROJECT_DIR / "models"
 DATA_DIR = PROJECT_DIR / "data" / "processed"
 REPORT_DIR = PROJECT_DIR / "reports"
 
-MODEL_PATH = MODEL_DIR / "best_lstm_model.keras"
-SCALER_PATH = MODEL_DIR / "scaler.joblib"
-METADATA_PATH = MODEL_DIR / "model_metadata.json"
-
 HISTORY_PATH = DATA_DIR / "earthquake_daily_counts.csv"
+FORECAST_PATH = DATA_DIR / "future_forecast.csv"
 EVALUATION_PATH = REPORT_DIR / "evaluation_results.csv"
-
-
-# ==========================================
-# 2. MEMUAT MODEL DAN DATA
-# ==========================================
-
-model = load_model(MODEL_PATH)
-scaler = joblib.load(SCALER_PATH)
-
-with open(METADATA_PATH, "r", encoding="utf-8") as file:
-    metadata = json.load(file)
-
-history_df = pd.read_csv(HISTORY_PATH, parse_dates=["tanggal"])
-history_df = history_df.sort_values("tanggal").reset_index(drop=True)
-
-evaluation_df = pd.read_csv(EVALUATION_PATH)
-
-TIMESTEPS = int(metadata["timesteps"])
+METADATA_PATH = PROJECT_DIR / "models" / "model_metadata.json"
 
 HORIZON_OPTIONS = [1, 7, 14, 30]
 
 
-# ==========================================
-# 3. FUNGSI FORECASTING
-# ==========================================
+def load_data():
+    # Data historis
+    history = pd.read_csv(HISTORY_PATH)
+    history["tanggal"] = pd.to_datetime(history["tanggal"])
+    history = history.sort_values("tanggal").reset_index(drop=True)
 
-def forecast_future(horizon):
+    # Hasil prediksi yang sudah dihitung sebelumnya
+    forecast = pd.read_csv(FORECAST_PATH)
 
-    historical_values = history_df["jumlah_gempa"].values
+    # Menyesuaikan nama kolom agar lebih mudah dikenali
+    forecast.columns = [
+        str(column).strip().lower()
+        for column in forecast.columns
+    ]
 
-    # Normalisasi 90 hari terakhir
-    last_values = historical_values[-TIMESTEPS:]
+    date_candidates = ["tanggal", "date", "ds"]
+    prediction_candidates = [
+        "prediksi",
+        "prediksi_jumlah_gempa",
+        "jumlah_gempa_prediksi",
+        "prediction",
+        "forecast",
+        "yhat"
+    ]
 
-    current_sequence = scaler.transform(
-        last_values.reshape(-1, 1)
-    ).flatten()
+    date_column = next(
+        (col for col in date_candidates if col in forecast.columns),
+        None
+    )
 
-    predictions = []
+    prediction_column = next(
+        (col for col in prediction_candidates if col in forecast.columns),
+        None
+    )
 
-    for _ in range(horizon):
-
-        input_data = current_sequence.reshape(
-            1, TIMESTEPS, 1
+    if date_column is None or prediction_column is None:
+        raise ValueError(
+            "Kolom future_forecast.csv tidak dikenali. "
+            f"Kolom yang tersedia: {list(forecast.columns)}"
         )
 
-        prediction_scaled = model.predict(
-            input_data,
-            verbose=0
-        )[0][0]
+    forecast = forecast.rename(columns={
+        date_column: "tanggal",
+        prediction_column: "prediksi"
+    })
 
-        prediction = scaler.inverse_transform(
-            np.array([[prediction_scaled]])
-        )[0][0]
+    forecast["tanggal"] = pd.to_datetime(forecast["tanggal"])
+    forecast["prediksi"] = pd.to_numeric(
+        forecast["prediksi"], errors="coerce"
+    )
 
-        prediction = max(0, float(prediction))
+    forecast = forecast.dropna(
+        subset=["tanggal", "prediksi"]
+    ).sort_values("tanggal").reset_index(drop=True)
 
-        predictions.append(prediction)
+    # Hasil evaluasi
+    if EVALUATION_PATH.exists():
+        evaluation = pd.read_csv(EVALUATION_PATH)
+    else:
+        evaluation = pd.DataFrame()
 
-        next_scaled = scaler.transform(
-            np.array([[prediction]])
-        )[0][0]
+    # Metadata bersifat opsional
+    if METADATA_PATH.exists():
+        with open(METADATA_PATH, "r", encoding="utf-8") as file:
+            metadata = json.load(file)
+    else:
+        metadata = {}
 
-        current_sequence = np.append(
-            current_sequence[1:],
-            next_scaled
-        )
-
-    return predictions
+    return history, forecast, evaluation, metadata
 
 
-# ==========================================
-# 4. HALAMAN UTAMA
-# ==========================================
+history_df, forecast_df, evaluation_df, metadata = load_data()
+
 
 @app.route("/")
 def index():
-
-    # Mengambil horizon dari URL
     try:
         horizon = int(request.args.get("horizon", 7))
-    except ValueError:
+    except (ValueError, TypeError):
         horizon = 7
 
     if horizon not in HORIZON_OPTIONS:
         horizon = 7
 
-    # Mengambil data historis
+    # Data historis 180 hari terakhir
     recent_history = history_df.tail(180).copy()
 
     history_dates = recent_history["tanggal"].dt.strftime(
@@ -125,20 +114,16 @@ def index():
         "jumlah_gempa"
     ].astype(float).tolist()
 
-    # Forecast
-    predictions = forecast_future(horizon)
+    # Ambil hasil prediksi sesuai horizon
+    selected_forecast = forecast_df.head(horizon)
 
-    last_date = history_df["tanggal"].iloc[-1]
-
-    future_dates = pd.date_range(
-        start=last_date + pd.Timedelta(days=1),
-        periods=horizon,
-        freq="D"
-    )
-
-    future_dates = future_dates.strftime(
+    future_dates = selected_forecast["tanggal"].dt.strftime(
         "%Y-%m-%d"
     ).tolist()
+
+    predictions = selected_forecast[
+        "prediksi"
+    ].astype(float).tolist()
 
     forecast_data = [
         {
@@ -148,18 +133,12 @@ def index():
         for date, value in zip(future_dates, predictions)
     ]
 
-    # Mengambil hasil evaluasi
     evaluation_records = evaluation_df.to_dict(
         orient="records"
     )
 
-    # Statistik data historis
     total_records = int(history_df["jumlah_gempa"].sum())
-
-    average_daily = float(
-        history_df["jumlah_gempa"].mean()
-    )
-
+    average_daily = float(history_df["jumlah_gempa"].mean())
     zero_days = int(
         (history_df["jumlah_gempa"] == 0).sum()
     )
@@ -181,13 +160,9 @@ def index():
     )
 
 
-# ==========================================
-# 5. MENJALANKAN SERVER
-# ==========================================
-
 if __name__ == "__main__":
     app.run(
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=5000,
         debug=True
     )
