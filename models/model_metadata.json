@@ -1,0 +1,18 @@
+{
+    "project_title": "Peramalan Jumlah Gempa Bumi Signifikan per Hari Menggunakan LSTM",
+    "dataset": "USGS Significant Earthquakes 1965-2016",
+    "target": "jumlah_gempa",
+    "filter_type": "Earthquake",
+    "minimum_magnitude": 5.5,
+    "frequency": "Daily",
+    "timesteps": 90,
+    "train_ratio": 0.8,
+    "validation_ratio": 0.1,
+    "test_ratio": 0.1,
+    "best_model": "LSTM_32",
+    "forecast_horizon": 30,
+    "total_observations": 18991,
+    "training_observations": 15192,
+    "validation_observations": 1899,
+    "testing_observations": 1900
+}

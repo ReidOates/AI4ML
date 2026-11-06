@@ -1,0 +1,335 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Earthquake Forecasting | LSTM</title>
+
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    >
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+
+<nav class="navbar navbar-dark">
+    <div class="container">
+        <span class="navbar-brand fw-bold">
+            Earthquake Forecasting
+        </span>
+
+        <span class="navbar-text">
+            LSTM Prediction System
+        </span>
+    </div>
+</nav>
+
+
+<main class="container py-4">
+
+    <section class="mb-4">
+        <h2 class="fw-bold">Dashboard Peramalan Gempa Bumi</h2>
+
+        <p class="text-secondary">
+            Peramalan jumlah gempa bumi signifikan per hari
+            menggunakan metode Long Short-Term Memory (LSTM).
+        </p>
+    </section>
+
+
+    <div class="alert alert-warning">
+        <strong>Catatan:</strong>
+        Sistem ini merupakan prototipe peramalan jumlah catatan
+        gempa harian berdasarkan data historis USGS.
+        Hasilnya bukan prediksi waktu, lokasi, atau kekuatan
+        gempa dan bukan sistem peringatan dini.
+    </div>
+
+
+    <!-- STATISTIK DATA -->
+
+    <section class="row g-3 mb-4">
+
+        <div class="col-md-4">
+            <div class="stat-card">
+                <p>Total Catatan Gempa</p>
+                <h3>{{ "{:,}".format(total_records) }}</h3>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="stat-card">
+                <p>Rata-rata Gempa per Hari</p>
+                <h3>{{ "%.2f"|format(average_daily) }}</h3>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="stat-card">
+                <p>Hari Tanpa Gempa</p>
+                <h3>{{ "{:,}".format(zero_days) }}</h3>
+            </div>
+        </div>
+
+    </section>
+
+
+    <!-- FORECAST -->
+
+    <section class="content-card mb-4">
+
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+
+            <div>
+                <h4>Peramalan Masa Depan</h4>
+                <p class="text-secondary mb-0">
+                    Pilih periode peramalan.
+                </p>
+            </div>
+
+            <form method="GET" action="/">
+                <select
+                    class="form-select"
+                    name="horizon"
+                    onchange="this.form.submit()"
+                >
+                    {% for option in horizon_options %}
+                    <option
+                        value="{{ option }}"
+                        {% if horizon == option %}selected{% endif %}
+                    >
+                        {{ option }} Hari
+                    </option>
+                    {% endfor %}
+                </select>
+            </form>
+
+        </div>
+
+        <div class="table-responsive mt-4">
+
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Tanggal</th>
+                        <th>Prediksi Jumlah Gempa</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for item in forecast_data %}
+                    <tr>
+                        <td>{{ item.tanggal }}</td>
+                        <td>{{ "%.3f"|format(item.prediksi) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+        </div>
+
+        <p class="text-secondary small mb-0">
+            Nilai desimal merupakan estimasi jumlah kejadian,
+            bukan jumlah kejadian aktual yang sudah tercatat.
+        </p>
+
+    </section>
+
+
+    <!-- GRAFIK -->
+
+    <section class="content-card mb-4">
+
+        <h4>Grafik Historis dan Forecast</h4>
+
+        <p class="text-secondary">
+            Menampilkan 180 hari terakhir dan hasil peramalan.
+        </p>
+
+        <div class="chart-container">
+            <canvas id="forecastChart"></canvas>
+        </div>
+
+    </section>
+
+
+    <!-- EVALUASI -->
+
+    <section class="content-card mb-4">
+
+        <h4>Evaluasi Model</h4>
+
+        <p class="text-secondary">
+            Perbandingan model LSTM terbaik dengan metode
+            Naive Forecast pada data testing.
+        </p>
+
+        <div class="table-responsive">
+
+            <table class="table table-bordered table-hover">
+
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>RMSE</th>
+                        <th>MAE</th>
+                        <th>MAPE (%)</th>
+                        <th>WAPE (%)</th>
+                        <th>R²</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for item in evaluation_records %}
+                    <tr>
+                        <td>{{ item["Model"] }}</td>
+                        <td>{{ "%.4f"|format(item["RMSE"]) }}</td>
+                        <td>{{ "%.4f"|format(item["MAE"]) }}</td>
+                        <td>{{ "%.2f"|format(item["MAPE_nonzero (%)"]) }}</td>
+                        <td>{{ "%.2f"|format(item["WAPE (%)"]) }}</td>
+                        <td>{{ "%.4f"|format(item["R2"]) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+
+            </table>
+
+        </div>
+
+        <div class="alert alert-info mb-0">
+            MAPE dihitung hanya pada hari dengan nilai aktual
+            lebih dari nol. Evaluasi ini tidak berarti model
+            mampu memprediksi kejadian gempa secara pasti.
+        </div>
+
+    </section>
+
+
+    <!-- INFORMASI MODEL -->
+
+    <section class="content-card mb-4">
+
+        <h4>Informasi Model</h4>
+
+        <div class="row">
+            <div class="col-md-6">
+                <p><strong>Metode:</strong> LSTM</p>
+                <p><strong>Model terpilih:</strong>
+                    {{ metadata.best_model }}
+                </p>
+                <p><strong>Timestep:</strong>
+                    {{ metadata.timesteps }} hari
+                </p>
+            </div>
+
+            <div class="col-md-6">
+                <p><strong>Frekuensi:</strong> Harian</p>
+                <p><strong>Dataset:</strong>
+                    USGS Significant Earthquakes
+                </p>
+                <p><strong>Rentang data:</strong>
+                    1965–2016
+                </p>
+            </div>
+        </div>
+
+    </section>
+
+
+    <footer class="text-center text-secondary py-3">
+        <small>
+            Earthquake Forecasting System | LSTM |
+            Machine Learning Project
+        </small>
+    </footer>
+
+</main>
+
+
+<script>
+const historyDates = {{ history_dates | tojson }};
+const historyValues = {{ history_values | tojson }};
+
+const futureDates = {{ future_dates | tojson }};
+const futureValues = {{ future_values | tojson }};
+
+const allDates = [...historyDates, ...futureDates];
+
+const historicalData = [
+    ...historyValues,
+    ...Array(futureDates.length).fill(null)
+];
+
+const forecastData = [
+    ...Array(historyDates.length - 1).fill(null),
+    historyValues[historyValues.length - 1],
+    ...futureValues
+];
+
+const ctx = document.getElementById("forecastChart");
+
+new Chart(ctx, {
+    type: "line",
+
+    data: {
+        labels: allDates,
+
+        datasets: [
+            {
+                label: "Data Historis",
+                data: historicalData,
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.2
+            },
+            {
+                label: "Forecast LSTM",
+                data: forecastData,
+                borderWidth: 2,
+                borderDash: [6, 5],
+                pointRadius: 3,
+                tension: 0.2
+            }
+        ]
+    },
+
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        interaction: {
+            intersect: false,
+            mode: "index"
+        },
+
+        scales: {
+            x: {
+                ticks: {
+                    maxTicksLimit: 10
+                }
+            },
+
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: "Jumlah Gempa"
+                }
+            }
+        }
+    }
+});
+</script>
+
+</body>
+</html>
