@@ -1,9 +1,4 @@
 Flask
-tensorflow
-numpy
+gunicorn
 pandas
-scikit-learn
-joblib
-matplotlib
-jupyter
-ipykernel
+numpy
